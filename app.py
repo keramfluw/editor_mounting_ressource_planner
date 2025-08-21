@@ -107,88 +107,145 @@ mehr_std = st.sidebar.number_input("Sonder-/Wartezeit-Stunden", min_value=0.0, v
 st.sidebar.caption("Alle Werte sind live-editierbar und fließen in die Kalkulation ein.")
 
 # ---------- Project selection ----------
-st.header("Projekt & Adresse")
-col1, col2 = st.columns([2, 3])
-with col1:
-    proj_options = ["— Manuell —"] + [f"{row['Stadt']} – {row['Objekt']}" for _, row in projects.iterrows()]
-    choice = st.selectbox("Projekt laden", proj_options, index=0)
-with col2:
-    if choice != "— Manuell —":
-        row = projects.iloc[proj_options.index(choice)-1].to_dict()
-        st.info(f"Ausgewählt: **{row['Stadt']} – {row['Objekt']}**  |  Hinweis: {row.get('Bemerkungen','')}")
-        positions_df_default = prefill_from_project(catalog, row)
+
+# ---------- Tabs ----------
+tab_calc, tab_cluster = st.tabs(["Kalkulation", "Stadt-Cluster"])
+
+with tab_calc:
+    # ---------- Project selection ----------
+    st.header("Projekt & Adresse")
+    col1, col2 = st.columns([2, 3])
+    with col1:
+        proj_options = ["— Manuell —"] + [f"{row['Stadt']} – {row['Objekt']}" for _, row in projects.iterrows()]
+        choice = st.selectbox("Projekt laden", proj_options, index=0)
+    with col2:
+        if choice != "— Manuell —":
+            row = projects.iloc[proj_options.index(choice)-1].to_dict()
+            st.info(f"Ausgewählt: **{row['Stadt']} – {row['Objekt']}**  |  Hinweis: {row.get('Bemerkungen','')}")
+            positions_df_default = prefill_from_project(catalog, row)
+        else:
+            row = {"Stadt":"", "Objekt":"", "Bemerkungen":""}
+            positions_df_default = catalog.copy()
+
+    addr_cols = st.columns(3)
+    stadt = addr_cols[0].text_input("Stadt", value=row.get("Stadt",""))
+    objekt = addr_cols[1].text_input("Objekt/Adresse", value=row.get("Objekt",""))
+    bem = addr_cols[2].text_input("Bemerkungen", value=row.get("Bemerkungen",""))
+
+    st.markdown("---")
+
+    # ---------- Positions editor ----------
+    st.subheader("Positionen")
+    editor_config = {
+        "Anzahl": st.column_config.NumberColumn("Anzahl", min_value=0, step=1),
+        "Preis_EUR": st.column_config.NumberColumn("Preis (€/Einheit)", min_value=0.0, step=0.5, format="%.2f"),
+        "Std_pro_Einheit": st.column_config.NumberColumn("Std/Einheit", min_value=0.0, step=0.05, format="%.2f"),
+    }
+    view_cols = ["Kategorie","Gerät","Std_pro_Einheit","Preis_EUR","Anzahl"]
+
+    edited = st.data_editor(
+        positions_df_default[view_cols],
+        column_config=editor_config,
+        use_container_width=True,
+        num_rows="dynamic",
+        hide_index=True
+    )
+
+    # ---------- Compute economics ----------
+    calc_df, totals = compute_kalkulation(edited, stundenlohn)
+
+    fahrkosten = gesamt_km * fahrpauschale
+    sonderkosten = mehr_std * mehr_aufsatz
+
+    gesamtstunden = totals["Arbeitsstunden"]
+    arbeitstage = gesamtstunden / (mitarbeiter * max(stunden_pro_tag, 0.0001))
+
+    gesamterlös = totals["Erlös"]
+    lohnkosten = totals["Lohnkosten"]
+    gesamtkosten = lohnkosten + fahrkosten + sonderkosten
+    db_gesamt = gesamterlös - gesamtkosten
+    marge = (db_gesamt / gesamterlös * 100) if gesamterlös > 0 else 0.0
+
+    # ---------- KPIs ----------
+    st.subheader("Kennzahlen")
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Gesamterlös", style_money(gesamterlös))
+    k2.metric("Arbeitsstunden (gesamt)", f"{gesamtstunden:,.2f} h".replace(".", ","))
+    k3.metric("Lohnkosten", style_money(lohnkosten))
+    k4.metric("Fahrt- & Sonderkosten", style_money(fahrkosten + sonderkosten))
+    k5.metric("Deckungsbeitrag (gesamt)", style_money(db_gesamt))
+
+    k6, k7 = st.columns(2)
+    k6.metric("Kalk. Arbeitstage", f"{arbeitstage:,.2f} d".replace(".", ","), help="Berechnet als Gesamtstunden / (Mitarbeiter × Stunden/Tag)")
+    k7.metric("Marge", f"{marge:,.1f} %")
+
+    # ---------- Detailed table ----------
+    st.subheader("Detailkalkulation je Position")
+    show_cols = ["Kategorie","Gerät","Anzahl","Std_pro_Einheit","Arbeitsstunden","Preis_EUR","Erlös","Lohnkosten","DB_Pos"]
+    st.dataframe(calc_df[show_cols], use_container_width=True, hide_index=True)
+
+    # ---------- Downloads ----------
+    st.subheader("Export")
+    excel_file = to_excel(calc_df[show_cols], {
+        "Stadt": stadt, "Objekt": objekt, "Bemerkungen": bem,
+        "Mitarbeiter": mitarbeiter, "Stunden/Tag": stunden_pro_tag, "Stundenlohn": stundenlohn,
+        "Fahrkosten (€/km)": fahrpauschale, "Gesamt-km": gesamt_km,
+        "Sonder-Satz": mehr_aufsatz, "Sonder-Stunden": mehr_std,
+        "Gesamterlös": gesamterlös, "Gesamtstunden": gesamtstunden, "Lohnkosten": lohnkosten,
+        "Fahrt/Sonder": fahrkosten + sonderkosten, "Deckungsbeitrag": db_gesamt, "Marge %": marge,
+        "Arbeitstage": arbeitstage
+    })
+    st.download_button("Excel herunterladen", data=excel_file, file_name="kalkulation.xlsx")
+
+    st.caption("Tipp: In **assets/data/catalog.csv** und **assets/data/projects.csv** können Sie Stammdaten pflegen. Änderungen werden beim Neuladen berücksichtigt.")
+
+with tab_cluster:
+    st.header("Stadt-Cluster (unsupervised)")
+    st.write("Gruppiert Städte nach Mengen (Wasserzähler, WMZ, KMZ, HKV). Wählen Sie Features und Clusteranzahl.")
+
+    # Aggregation nach Stadt
+    agg_cols = ["Wasserzähler","WMZ","KMZ","HKV"]
+    agg_city = projects.groupby("Stadt")[agg_cols].sum().reset_index()
+
+    # Auswahl der Features
+    default_features = [c for c in agg_cols if agg_city[c].sum() > 0]
+    if not default_features:
+        default_features = agg_cols
+    features = st.multiselect("Features für das Clustering", agg_cols, default=default_features)
+
+    k = st.slider("Anzahl Cluster (k)", min_value=2, max_value=8, value=3, step=1)
+
+    if features:
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.cluster import KMeans
+        from sklearn.decomposition import PCA
+        import matplotlib.pyplot as plt
+
+        X = agg_city[features].astype(float).values
+        X_scaled = StandardScaler().fit_transform(X)
+        model = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = model.fit_predict(X_scaled)
+
+        agg_city["Cluster"] = labels
+
+        st.subheader("Cluster-Zuordnung je Stadt")
+        st.dataframe(agg_city, use_container_width=True, hide_index=True)
+
+        # Download CSV
+        csv_bytes = agg_city.to_csv(index=False).encode("utf-8")
+        st.download_button("Cluster-Ergebnis als CSV", data=csv_bytes, file_name="city_clusters.csv")
+
+        # 2D-Projektion via PCA
+        pca = PCA(n_components=2, random_state=42)
+        pts = pca.fit_transform(X_scaled)
+
+        fig = plt.figure()
+        for i, (x, y) in enumerate(pts):
+            plt.scatter(x, y, c=[labels[i]])
+            plt.text(x, y, agg_city.loc[i, "Stadt"])
+        plt.xlabel("PCA 1")
+        plt.ylabel("PCA 2")
+        plt.title("Stadt-Cluster – PCA-Projektion")
+        st.pyplot(fig, clear_figure=True)
     else:
-        row = {"Stadt":"", "Objekt":"", "Bemerkungen":""}
-        positions_df_default = catalog.copy()
-
-addr_cols = st.columns(3)
-stadt = addr_cols[0].text_input("Stadt", value=row.get("Stadt",""))
-objekt = addr_cols[1].text_input("Objekt/Adresse", value=row.get("Objekt",""))
-bem = addr_cols[2].text_input("Bemerkungen", value=row.get("Bemerkungen",""))
-
-st.markdown("---")
-
-# ---------- Positions editor ----------
-st.subheader("Positionen")
-editor_config = {
-    "Anzahl": st.column_config.NumberColumn("Anzahl", min_value=0, step=1),
-    "Preis_EUR": st.column_config.NumberColumn("Preis (€/Einheit)", min_value=0.0, step=0.5, format="%.2f"),
-    "Std_pro_Einheit": st.column_config.NumberColumn("Std/Einheit", min_value=0.0, step=0.05, format="%.2f"),
-}
-view_cols = ["Kategorie","Gerät","Std_pro_Einheit","Preis_EUR","Anzahl"]
-
-edited = st.data_editor(
-    positions_df_default[view_cols],
-    column_config=editor_config,
-    use_container_width=True,
-    num_rows="dynamic",
-    hide_index=True
-)
-
-# ---------- Compute economics ----------
-calc_df, totals = compute_kalkulation(edited, stundenlohn)
-
-fahrkosten = gesamt_km * fahrpauschale
-sonderkosten = mehr_std * mehr_aufsatz
-
-gesamtstunden = totals["Arbeitsstunden"]
-arbeitstage = gesamtstunden / (mitarbeiter * max(stunden_pro_tag, 0.0001))
-
-gesamterlös = totals["Erlös"]
-lohnkosten = totals["Lohnkosten"]
-gesamtkosten = lohnkosten + fahrkosten + sonderkosten
-db_gesamt = gesamterlös - gesamtkosten
-marge = (db_gesamt / gesamterlös * 100) if gesamterlös > 0 else 0.0
-
-# ---------- KPIs ----------
-st.subheader("Kennzahlen")
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("Gesamterlös", style_money(gesamterlös))
-k2.metric("Arbeitsstunden (gesamt)", f"{gesamtstunden:,.2f} h".replace(".", ","))
-k3.metric("Lohnkosten", style_money(lohnkosten))
-k4.metric("Fahrt- & Sonderkosten", style_money(fahrkosten + sonderkosten))
-k5.metric("Deckungsbeitrag (gesamt)", style_money(db_gesamt))
-
-k6, k7 = st.columns(2)
-k6.metric("Kalk. Arbeitstage", f"{arbeitstage:,.2f} d".replace(".", ","), help="Berechnet als Gesamtstunden / (Mitarbeiter × Stunden/Tag)")
-k7.metric("Marge", f"{marge:,.1f} %")
-
-# ---------- Detailed table ----------
-st.subheader("Detailkalkulation je Position")
-show_cols = ["Kategorie","Gerät","Anzahl","Std_pro_Einheit","Arbeitsstunden","Preis_EUR","Erlös","Lohnkosten","DB_Pos"]
-st.dataframe(calc_df[show_cols], use_container_width=True, hide_index=True)
-
-# ---------- Downloads ----------
-st.subheader("Export")
-excel_file = to_excel(calc_df[show_cols], {
-    "Stadt": stadt, "Objekt": objekt, "Bemerkungen": bem,
-    "Mitarbeiter": mitarbeiter, "Stunden/Tag": stunden_pro_tag, "Stundenlohn": stundenlohn,
-    "Fahrkosten (€/km)": fahrpauschale, "Gesamt-km": gesamt_km,
-    "Sonder-Satz": mehr_aufsatz, "Sonder-Stunden": mehr_std,
-    "Gesamterlös": gesamterlös, "Gesamtstunden": gesamtstunden, "Lohnkosten": lohnkosten,
-    "Fahrt/Sonder": fahrkosten + sonderkosten, "Deckungsbeitrag": db_gesamt, "Marge %": marge,
-    "Arbeitstage": arbeitstage
-})
-st.download_button("Excel herunterladen", data=excel_file, file_name="kalkulation.xlsx")
-
-st.caption("Tipp: In **assets/data/catalog.csv** und **assets/data/projects.csv** können Sie Stammdaten pflegen. Änderungen werden beim Neuladen berücksichtigt.")
+        st.info("Bitte mindestens ein Feature auswählen.")
