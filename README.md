@@ -39,10 +39,3 @@ Bei Projektwahl werden die Mengen je Kategorie **als Startwert** auf die erste Z
 
 ## Lizenz
 MIT – Use at your own risk.
-
-
-## Stadt-Cluster
-Unter dem Tab **„Stadt-Cluster“** können Städte per **K-Means** gruppiert werden.
-- Wählen Sie die **Features** (Wasserzähler, WMZ, KMZ, HKV).
-- Legen Sie **k** (2–8) fest.
-- Ergebnis als Tabelle und **PCA-Scatterplot** (matplotlib), plus **CSV-Export**.
