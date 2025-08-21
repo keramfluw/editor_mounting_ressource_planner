@@ -1,0 +1,15 @@
+Kategorie,Gerät,Std_pro_Einheit,Preis_EUR,Anzahl
+Wasserzähler,UP-MK Zähler,0.33,12.0,0
+Wasserzähler,"Aufputzzähler, Zapfhahnzähler + Zählwerkkopf",0.33,15.0,0
+Wasserzähler,Hauswasserzähler (bis Q3=16),0.5,20.0,0
+Wasserzähler,Funkmodule WZ,0.17,5.0,0
+Wasserzähler,Funkmodule WMZ,0.17,5.0,0
+Wärme-/Kältezähler,"Split WMZ bis QN 10,0 m³/h",0.75,75.0,0
+Wärme-/Kältezähler,"Split WMZ QN 15,0 - QN 40,0 m³/h",0.92,120.0,0
+Wärme-/Kältezähler,"Split WMZ größer QN 40,0 m³/h",1.01,170.0,0
+Wärme-/Kältezähler,"MK- und Verschraubungszähler bis QN 2,5m³/h",0.5,30.0,0
+AMR,Montage Gateway,0.5,30.0,0
+AMR,Montage Netzwerkknoten,0.42,30.0,0
+HKVE,Neuausstattung und Austausch,0.75,7.5,0
+HKVE,Neuasstattung und Austausch Fernfühler,0.5,15.0,0
+Rauchmelder,Neuausstattung und Austausch,0.25,8.0,0
